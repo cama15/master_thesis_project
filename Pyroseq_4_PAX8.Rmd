@@ -1,0 +1,913 @@
+---
+title: "Pyroseq_4_PAX8"
+output: html_document
+date: "2025-04-25"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+```{r}
+library(ggplot2)
+library(tidyverse)
+library(readr)
+library(dplyr)
+library(RColorBrewer)
+library(ggrepel)
+```
+
+```{r}
+data <- read_csv("simple_pax_pyroseq.csv")
+```
+
+```{r}
+head(data)
+```
+
+```{r}
+df_long <- data %>%
+  pivot_longer(cols = -c(`Sample ID`, `Cell state`, `Cell line`), 
+               names_to = "genomic_position", 
+               values_to = "methylation_percentage")
+```
+
+```{r}
+colnames(df_long)[colnames(df_long) == "Sample ID"] <- "Sample_ID"
+colnames(df_long)[colnames(df_long) == "Cell state"] <- "Cell_State"
+colnames(df_long)[colnames(df_long) == "Cell line"] <- "Cell_Line"
+colnames(df_long)[colnames(df_long) == "genomic_postition"] <- "Position"
+colnames(df_long)[colnames(df_long) == "methylation_percentage"] <- "Methylation_Percentage"
+```
+
+```{r}
+df_long <- df_long %>%
+  filter(Cell_Line == "H1")
+```
+
+```{r}
+head(df_long)
+```
+
+```{r}
+df_long <- df_long %>%
+  mutate(Cell_State = recode(Cell_State,
+                             "Naive" = "Naive",
+                             "Primed" = "Primed",
+                             "Reprimed_d14" = "Formative",
+                             "POMC_primed" = "POMC_primed", 
+                             "POMC_reprimed" = "POMC_formative",
+                             .default = Cell_State))
+```
+
+
+```{r}
+str(df_long)
+```
+
+```{r}
+unique(df_long$Methylation_Percentage)
+```
+
+```{r}
+df_long <- df_long[!is.na(df_long$Methylation_Percentage), ]
+colnames(df_long)
+```
+
+```{r}
+df_long$Methylation_Percentage <- as.numeric(df_long$Methylation_Percentage)
+```
+
+```{r}
+df_new <- df_long %>%
+  filter(!Sample_ID %in% c("S38", "NK", "T10", "S95", "X61", "X69"))
+print(df_new)
+```
+```{r}
+naive_mean <- df_new %>%
+  filter(Cell_State == "Naive") %>%
+  summarise(mean_meth = mean(Methylation_Percentage, na.rm = TRUE))
+
+print(naive_mean)
+```
+
+
+#25.04 bar plot
+
+```{r}
+# Define custom colors for developmental tracks
+track_colors <- c(
+  "Formative" = "#F4A3D1",  # Pink
+  "Primed" = "#82D182"      # Green
+)
+
+# Step 1: Filter data for specific cell states only
+df_filtered <- df_new %>%
+  filter(Cell_State %in% c("Naive", "Formative", "POMC_formative", "Primed", "POMC_primed"))
+
+# Step 2: Ensure Methylation_Percentage is numeric and handle NAs
+df_filtered <- df_filtered %>%
+  mutate(Methylation_Percentage = as.numeric(Methylation_Percentage)) %>%
+  filter(!is.na(Methylation_Percentage))
+
+# Step 3: Assign developmental track
+df_filtered <- df_filtered %>%
+  mutate(
+    Track = case_when(
+      Cell_State %in% c("Naive", "Formative", "POMC_formative") ~ "Formative",
+      Cell_State %in% c("Primed", "POMC_primed") ~ "Primed"
+    ),
+    Cell_State = factor(Cell_State, levels = c("Naive", "Formative", "POMC_formative", "Primed", "POMC_primed")),
+    Track = factor(Track, levels = c("Formative", "Primed"))
+  )
+
+# Step 4: Compute mean methylation for labels
+mean_labels <- df_filtered %>%
+  group_by(Cell_State) %>%
+  summarise(mean_meth = mean(Methylation_Percentage, na.rm = TRUE), .groups = "drop")
+
+# Step 5: Bar plot with grouped fill, mean labels, and grouped legend
+p <- ggplot(df_filtered, aes(x = Cell_State, y = Methylation_Percentage, fill = Track)) +
+  geom_bar(stat = "summary", fun = "mean", position = "dodge", width = 0.7) +
+  geom_text(data = mean_labels, 
+            aes(x = Cell_State, y = mean_meth + 2, label = paste0("Mean: ", round(mean_meth, 1))),
+            inherit.aes = FALSE, size = 3.5, fontface = "bold", vjust = 0) +
+  scale_fill_manual(values = track_colors) +
+  scale_y_continuous(limits = c(0, 100)) +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "Mean Methylation Percentage per Cell State (H1 Line)",
+    x = "Cell State",
+    y = "Mean Methylation Percentage",
+    fill = "Developmental Track"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "top"
+  )
+
+# Step 6: Save the plot
+ggsave("avg_methylation_barplot_with_labeled_means.png", plot = p, width = 12, height = 8, dpi = 300)
+
+# Step 7: Print the plot
+print(p)
+
+```
+
+
+#boxplot
+
+```{r}
+track_colors <- c(
+  "Formative" = "#F4A3D1",  # Pink
+  "Primed" = "#82D182"      # Green
+)
+
+# Step 1: Filter data for specific cell states only
+df_filtered <- df_new %>%
+  filter(Cell_State %in% c("Naive", "Formative", "POMC_formative", "Primed", "POMC_primed"))
+
+# Step 2: Ensure Methylation_Percentage is numeric and handle NAs
+df_filtered <- df_filtered %>%
+  mutate(Methylation_Percentage = as.numeric(Methylation_Percentage)) %>%
+  filter(!is.na(Methylation_Percentage))
+
+# Step 3: Assign developmental track
+df_filtered <- df_filtered %>%
+  mutate(
+    Track = case_when(
+      Cell_State %in% c("Naive", "Formative", "POMC_formative") ~ "Formative",
+      Cell_State %in% c("Primed", "POMC_primed") ~ "Primed"
+    ),
+    Cell_State = factor(Cell_State, levels = c("Naive", "Formative", "POMC_formative", "Primed", "POMC_primed")),
+    Track = factor(Track, levels = c("Formative", "Primed"))
+  )
+
+# Step 4: Compute mean methylation for each cell state
+mean_labels <- df_filtered %>%
+  group_by(Cell_State) %>%
+  summarise(mean_meth = mean(Methylation_Percentage, na.rm = TRUE), .groups = "drop")
+
+# Step 5: Compute max methylation for label placement
+max_y_values <- df_filtered %>%
+  group_by(Cell_State) %>%
+  summarise(max_meth = max(Methylation_Percentage, na.rm = TRUE), .groups = "drop")
+
+# Merge the mean and max values
+mean_labels <- left_join(mean_labels, max_y_values, by = "Cell_State")
+
+# Step 6: Adjust mean label positions to avoid exceeding the y-axis range (0 to 100)
+mean_labels <- mean_labels %>%
+  mutate(y_label_position = pmin(max_meth + 5, 100))  # Clip the label position to 100
+
+# Step 7: Boxplot with mean labels and custom legend
+p <- ggplot(df_filtered, aes(x = Cell_State, y = Methylation_Percentage, fill = Track)) +
+  geom_boxplot(width = 0.6, outlier.shape = NA) +
+  geom_jitter(width = 0.15, size = 1, alpha = 0.4) +
+  geom_text(data = mean_labels, aes(x = Cell_State, y = y_label_position,
+                                    label = paste("Mean:", round(mean_meth, 1))),
+            inherit.aes = FALSE, size = 3.5, fontface = "bold", vjust = 0) +
+  scale_fill_manual(values = track_colors) +
+  scale_y_continuous(limits = c(0, 100)) +
+  theme_minimal(base_size = 14) +
+  labs(
+    title = "Mean Methylation per Cell State (H1 Line)",
+    x = "Cell State",
+    y = "Methylation Percentage",
+    fill = "Developmental Track"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "top"
+  )
+
+# Step 8: Save the plot
+ggsave("avg_meth_boxplot_with_means_updated.png", plot = p, width = 12, height = 8, dpi = 300)
+
+# Step 9: Print the plot
+print(p)
+```
+
+
+
+#24.04
+
+```{r}
+desired_order <- c("Naive", "Reprimed_d1", "Reprimed_d14", "NKX_reprimed",
+                   "POMC_reprimed", "Primed", "NKX_primed", "POMC_primed")
+
+# Clean and filter the data
+df_clean <- df_long %>%
+  mutate(Methylation_Percentage = as.numeric(Methylation_Percentage)) %>%  # Convert to numeric
+  filter(!is.na(Methylation_Percentage)) %>%                               # Remove NAs from invalid values
+  filter(Cell_Line == "H1") %>%                                            # Keep only H1 samples
+  filter(Cell_State %in% desired_order) %>%                                # Keep only desired states
+  mutate(Cell_State = factor(Cell_State, levels = desired_order))          # Order Cell_State
+
+# Stop if data is still empty
+if (nrow(df_clean) == 0) {
+  stop("No data remains after filtering for H1 and valid cell states.")
+}
+
+# Compute average methylation per cell state
+mean_meth <- df_clean %>%
+  group_by(Cell_State) %>%
+  summarise(mean_meth = mean(Methylation_Percentage), .groups = "drop")
+
+# Plot
+p <- ggplot(df_clean, aes(x = factor(genomic_position), y = Methylation_Percentage, fill = Sample_ID)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  facet_wrap(~ Cell_State, scales = "fixed", ncol = 1) +
+  geom_hline(data = mean_meth, aes(yintercept = mean_meth), color = "black", linetype = "dashed") +
+  geom_text(data = mean_meth, aes(x = 1, y = mean_meth, label = paste0("Mean: ", round(mean_meth, 1))), vjust = -0.5, hjust = 0, size = 3.5, inherit.aes = FALSE) +  # Adjust label placement
+  theme_minimal(base_size = 14) +  # Increased base font size
+  labs(title = "Methylation Percentage per Genomic Position by Cell State",
+       x = "Genomic Position",
+       y = "Methylation Percentage",
+       fill = "Sample") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, size = 10),
+        strip.text = element_text(face = "bold", size = 12),
+        panel.spacing = unit(1.5, "lines")) +  # More space between panels
+  scale_y_continuous(breaks = seq(0, 100, 20), limits = c(0, 100))
+
+# Print plot
+print(p)
+
+# Save plot with larger size
+ggsave("methylation_per_genomic_position_large.png", p, width = 16, height = 24, dpi = 550)
+```
+
+```{r}
+ggplot(df_long, aes(x = genomic_position, y = Methylation_Percentage, 
+                    color = `Cell_State`, group = `Sample_ID`)) +
+  geom_line(alpha = 0.5) + 
+  geom_point(size = 1) +   
+  theme_minimal() + 
+  labs(title = "Methylation Percentage Across Genomic Positions",
+       x = "Genomic Position", y = "Methylation Percentage") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  scale_y_continuous(breaks = seq(0, 100, by = 20))
+```
+
+```{r}
+df_long_clean <- df_long %>% 
+  filter(!is.na(genomic_position) & 
+         !is.na(Methylation_Percentage) & 
+         !is.na(Cell_Line) & 
+         !is.na(Cell_State))
+
+df_long_clean$Experiment <- substr(df_long_clean$Sample_ID, 1, 1)
+
+experiment_ids <- unique(df_long_clean$Experiment)
+
+for (exp_id in experiment_ids) {
+  
+  exp_data <- df_long_clean %>% 
+    filter(Experiment == exp_id | Sample_ID == "NK")
+  
+  p <- ggplot(exp_data, aes(x = factor(genomic_position), y = Methylation_Percentage, 
+                            fill = Cell_Line)) +
+    geom_bar(stat = "identity", position = position_dodge(), aes(group = Sample_ID)) +
+    theme_minimal() +
+    labs(title = paste("Experiment", exp_id, "- Methylation Percentage"),
+         x = "Genomic Position",
+         y = "Methylation Percentage",
+         fill = "Cell Line") +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1)) +  
+    scale_y_continuous(breaks = seq(0, 100, by = 10), limits = c(0, 100)) +  
+    facet_wrap(~ Cell_State, scales = "fixed")
+  
+  print(p)
+}
+```
+
+
+```{r}
+df_long$Experiment <- substr(df_long$Sample_ID, 1, 1)
+
+experiment_ids <- unique(df_long$Experiment)
+
+for (exp_id in experiment_ids) {
+  
+  exp_data <- df_long %>% 
+    filter(Experiment == exp_id | Sample_ID == "NK")
+  
+  exp_data <- exp_data %>% filter(!is.na(Cell_State))
+  
+  if (nrow(exp_data) == 0) {
+    warning(paste("Skipping Experiment", exp_id, "due to all Cell_State values being NA"))
+    next
+  }
+  
+  p <- ggplot(exp_data, aes(x = factor(genomic_position), y = Methylation_Percentage, fill = Cell_Line)) +
+    geom_boxplot(outlier.shape = NA, alpha = 0.6) +  
+    geom_jitter(aes(color = Cell_Line), width = 0.2, size = 1, alpha = 0.8) +  
+    theme_minimal() +
+    labs(title = paste("Experiment", exp_id, "- Methylation Distribution"),
+         x = "Genomic Position",
+         y = "Methylation Percentage",
+         fill = "Cell Line") +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+    scale_y_continuous(breaks = seq(0, 100, by = 10), limits = c(0, 100)) +
+    facet_wrap(~ Cell_State, scales = "fixed")
+
+  print(p)
+}
+```
+
+```{r}
+df_long$Experiment <- substr(df_long$Sample_ID, 1, 1)
+
+experiment_ids <- unique(df_long$Experiment)
+cell_lines <- unique(df_long$Cell_Line)
+
+for (cell in cell_lines) {
+  
+  cell_data <- df_long %>% 
+    filter(Cell_Line == cell & (!is.na(Cell_State)))  # Filter for each cell line and remove NA values
+
+  if (nrow(cell_data) == 0) {  
+    warning(paste("Skipping Cell Line", cell, "due to all Cell_State values being NA"))
+    next  # Skip if there's no valid data
+  }
+  
+  for (exp_id in experiment_ids) {
+    
+    exp_data <- cell_data %>% 
+      filter(Experiment == exp_id | Sample_ID == "NK")
+    
+    if (nrow(exp_data) == 0) {
+      warning(paste("Skipping Experiment", exp_id, "for Cell Line", cell, "due to no valid data"))
+      next
+    }
+    
+    p <- ggplot(exp_data, aes(x = factor(genomic_position), y = Methylation_Percentage, fill = Cell_Line)) +
+      geom_boxplot(outlier.shape = NA, alpha = 0.6) +  
+      geom_jitter(aes(color = Cell_Line), width = 0.2, size = 1, alpha = 0.8) +  
+      theme_minimal() +
+      labs(title = paste("Experiment", exp_id, "-", cell, "- Methylation Distribution"),
+           x = "Genomic Position",
+           y = "Methylation Percentage",
+           fill = "Cell Line") +
+      theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+      scale_y_continuous(breaks = seq(0, 100, by = 10), limits = c(0, 100)) +
+      facet_wrap(~ Cell_State, scales = "fixed")
+
+    print(p)  # Print each plot on a separate page
+  }
+}
+```
+
+
+```{r}
+df_long$Experiment <- substr(df_long$Sample_ID, 1, 1)
+
+experiment_ids <- unique(df_long$Experiment)
+
+for (exp_id in experiment_ids) {
+  
+  exp_data <- df_long %>% 
+    filter(Experiment == exp_id | Sample_ID == "NK") %>%
+    filter(!is.na(Cell_State))
+  
+  print(paste("Experiment", exp_id, "- Rows after filtering:", nrow(exp_data)))
+
+  print(head(exp_data))
+
+  if ("Cell_State" %in% colnames(exp_data)) {
+    # Create the plot
+    p <- ggplot(exp_data, aes(x = factor(genomic_position), y = Methylation_Percentage, fill = Cell_Line)) +
+      geom_boxplot(outlier.shape = NA, alpha = 0.6) +  
+      geom_jitter(aes(color = Cell_Line), width = 0.2, size = 1, alpha = 0.8) +  
+      theme_minimal() +
+      labs(title = paste("Experiment", exp_id, "- Methylation Distribution"),
+           x = "Genomic Position",
+           y = "Methylation Percentage",
+           fill = "Cell Line") +
+      theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+      scale_y_continuous(breaks = seq(0, 100, by = 10), limits = c(0, 100)) + 
+      facet_wrap(~ Cell_State, scales = "fixed")
+    
+    print(p)
+  }
+}
+```
+
+
+```{r}
+df_long$Experiment <- substr(df_long$Sample_ID, 1, 1)
+
+experiment_ids <- unique(df_long$Experiment)
+
+for (exp_id in experiment_ids) {
+  
+  exp_data <- df_long %>% 
+    filter(Experiment == exp_id | Sample_ID == "NK") 
+ 
+  exp_data <- exp_data %>% filter(!is.na(Cell_State))
+
+  if (nrow(exp_data) == 0) {
+    warning(paste("Skipping Experiment", exp_id, "due to all Cell_State values being NA"))
+    next
+  }
+
+  p <- ggplot(exp_data, aes(x = factor(genomic_position), y = Methylation_Percentage, 
+                            fill = Cell_State)) +  
+    geom_bar(stat = "identity", position = position_dodge(), aes(group = Sample_ID)) +
+    theme_minimal() +
+    labs(title = paste("Experiment", exp_id, "- Methylation Percentage"),
+         x = "Genomic Position",
+         y = "Methylation Percentage",
+         fill = "Cell State") +  
+    theme(axis.text.x = element_text(angle = 90, hjust = 1)) +  
+    scale_y_continuous(breaks = seq(0, 100, by = 10), limits = c(0, 100)) +  
+    facet_wrap(~ Cell_State, scales = "fixed")
+
+  print(p)  
+}
+```
+
+```{r}
+df_long$Experiment <- substr(df_long$Sample_ID, 1, 1)
+
+experiment_ids <- unique(df_long$Experiment)
+
+for (exp_id in experiment_ids) {
+  
+  exp_data <- df_long %>% 
+    filter(Experiment == exp_id | Sample_ID == "NK") %>%
+    filter(!is.na(Cell_State) & !is.na(Cell_Line) & !is.na(Methylation_Percentage)) %>% 
+    group_by(Cell_State, Cell_Line, genomic_position) %>%  
+    summarise(Avg_Methylation = mean(Methylation_Percentage, na.rm = TRUE), .groups = "drop") 
+  
+  if (nrow(exp_data) > 0) {  
+    p <- ggplot(exp_data, aes(x = factor(genomic_position), y = Avg_Methylation, 
+                              color = Cell_State, linetype = Cell_Line, 
+                              group = interaction(Cell_State, Cell_Line))) +  
+      geom_line(size = 1) +  
+      geom_point(size = 2) + 
+      theme_minimal() +
+      labs(title = paste("Experiment", exp_id, "- Average Methylation Percentage"),
+           x = "Genomic Position",
+           y = "Average Methylation Percentage",
+           color = "Cell State",
+           linetype = "Cell Line") +  
+      theme(axis.text.x = element_text(angle = 90, hjust = 1)) +  
+      scale_y_continuous(breaks = seq(0, 100, by = 10), limits = c(0, 100))  
+
+    print(p) 
+  }
+}
+```
+```{r}
+df_long$Experiment <- substr(df_long$Sample_ID, 1, 1)
+
+experiment_ids <- unique(df_long$Experiment)
+cell_states <- unique(df_long$Cell_State)
+
+for (exp_id in experiment_ids) {
+  for (cell_state in cell_states) {
+    
+    exp_data <- df_long %>% 
+      filter((Experiment == exp_id | Sample_ID == "NK") & Cell_State == cell_state) %>%
+      group_by(Sample_ID, Cell_Line, genomic_position) %>%  
+      summarise(Avg_Methylation = mean(Methylation_Percentage, na.rm = TRUE), .groups = 'drop')  
+    
+    # Skip if there's no data for this Cell_State
+    if (nrow(exp_data) == 0) next  
+
+    p <- ggplot(exp_data, aes(x = factor(genomic_position), y = Avg_Methylation, 
+                              color = Sample_ID, group = Sample_ID)) +  
+      geom_line(size = 1) +  
+      geom_point(size = 2) + 
+      theme_minimal() +
+      labs(title = paste("Experiment", exp_id, "-", cell_state, "- Average Methylation"),
+           x = "Genomic Position",
+           y = "Average Methylation Percentage",
+           color = "Sample ID") +  
+      theme(axis.text.x = element_text(angle = 90, hjust = 1)) +  
+      scale_y_continuous(breaks = seq(0, 100, by = 10), limits = c(0, 100))  
+
+    print(p)  
+  }
+}
+```
+
+```{r}
+cell_states <- unique(df_long$Cell_State)
+
+for (cell_state in cell_states) {
+  
+  exp_data <- df_long %>% 
+    filter(Cell_State == cell_state) %>%
+    group_by(Sample_ID, Cell_Line, genomic_position) %>%  
+    summarise(Avg_Methylation = mean(Methylation_Percentage, na.rm = TRUE), .groups = 'drop')  
+
+  if (nrow(exp_data) == 0) next  
+
+  p <- ggplot(exp_data, aes(x = factor(genomic_position), y = Avg_Methylation, 
+                            color = Sample_ID, group = Sample_ID)) +  
+    geom_line(size = 1) +  
+    geom_point(size = 2) + 
+    theme_minimal() +
+    labs(title = paste(cell_state, "- Average Methylation Across Samples"),
+         x = "Genomic Position",
+         y = "Average Methylation Percentage",
+         color = "Sample ID") +  
+    theme(axis.text.x = element_text(angle = 90, hjust = 1)) +  
+    scale_y_continuous(breaks = seq(0, 100, by = 10), limits = c(0, 100))  
+
+  print(p)  
+}
+```
+
+
+
+```{r}
+time_levels_reprimed <- c("Naive", "Reprimed_d1", "Reprimed_d14", "NKX_reprimed", "POMC_reprimed")
+time_levels_primed <- c("Primed", "NKX_primed", "POMC_primed")
+
+df_long$Timeline <- ifelse(df_long$Cell_State %in% time_levels_reprimed, "Reprimed", 
+                           ifelse(df_long$Cell_State %in% time_levels_primed, "Primed", NA))
+
+df_long$Cell_line <- as.factor(df_long$Cell_Line)
+
+df_reprimed <- df_long %>%
+  filter(Timeline == "Reprimed") %>%
+  mutate(Timepoint = factor(Cell_State, levels = time_levels_reprimed, ordered = TRUE)) %>%
+  group_by(Timepoint, Cell_Line) %>% 
+  summarise(Avg_Methylation = mean(Methylation_Percentage, na.rm = TRUE)) 
+
+p1 <- ggplot(df_reprimed, aes(x = Timepoint, y = Avg_Methylation, 
+                              group = Cell_Line, 
+                              color = Cell_Line, 
+                              linetype = Cell_Line)) + 
+  geom_line(size = 1) +  
+  geom_point(size = 3) +  
+  theme_minimal() +
+  labs(title = "Reprimed Timeline - Average Methylation Percentage",
+       x = "Timepoint",
+       y = "Average Methylation Percentage",
+       color = "Cell Line",
+       linetype = "Cell Line") +  
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +  
+  scale_y_continuous(breaks = seq(0, 100, by = 10), limits = c(0, 100))
+
+df_primed <- df_long %>%
+  filter(Timeline == "Primed") %>%
+  mutate(Timepoint = factor(Cell_State, levels = time_levels_primed, ordered = TRUE)) %>%
+  group_by(Timepoint, Cell_Line) %>% 
+  summarise(Avg_Methylation = mean(Methylation_Percentage, na.rm = TRUE)) 
+
+p2 <- ggplot(df_primed, aes(x = Timepoint, y = Avg_Methylation, 
+                            group = Cell_Line, 
+                            color = Cell_Line, 
+                            linetype = Cell_Line)) +  
+  geom_line(size = 1) +  
+  geom_point(size = 3) +  
+  theme_minimal() +
+  labs(title = "Primed Timeline - Average Methylation Percentage",
+       x = "Timepoint",
+       y = "Average Methylation Percentage",
+       color = "Cell Line",
+       linetype = "Cell Line") +  
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +  
+  scale_y_continuous(breaks = seq(0, 100, by = 10), limits = c(0, 100))
+
+print(p1)
+print(p2)
+```
+
+```{r}
+time_levels_reprimed <- c("Naive", "Reprimed_d1", "Reprimed_d14", "NKX_reprimed", "POMC_reprimed")
+time_levels_primed <- c("Primed", "NKX_primed", "POMC_primed")
+
+df_long$Timeline <- ifelse(df_long$Cell_State %in% time_levels_reprimed, "Reprimed", 
+                           ifelse(df_long$Cell_State %in% time_levels_primed, "Primed", NA))
+
+df_long$Cell_Line <- as.factor(df_long$Cell_Line)
+
+cell_lines <- unique(df_long$Cell_Line) 
+
+for (cell in cell_lines) {
+
+  df_reprimed <- df_long %>%
+    filter(Timeline == "Reprimed", Cell_Line == cell) %>%
+    mutate(Timepoint = factor(Cell_State, levels = time_levels_reprimed, ordered = TRUE)) %>%
+    group_by(Timepoint) %>% 
+    summarise(Avg_Methylation = mean(Methylation_Percentage, na.rm = TRUE)) 
+  
+  if (nrow(df_reprimed) > 0) {  
+    p_reprimed <- ggplot(df_reprimed, aes(x = Timepoint, y = Avg_Methylation, group = 1)) + 
+      geom_line(size = 1, color = "blue") +  
+      geom_point(size = 3, color = "blue") +  
+      theme_minimal() +
+      labs(title = paste("Reprimed Timeline - Cell Line:", cell),
+           x = "Timepoint",
+           y = "Average Methylation Percentage") +  
+      theme(axis.text.x = element_text(angle = 45, hjust = 1)) +  
+      scale_y_continuous(breaks = seq(0, 100, by = 10), limits = c(0, 100))
+
+    print(p_reprimed)
+  }
+
+  df_primed <- df_long %>%
+    filter(Timeline == "Primed", Cell_Line == cell) %>%
+    mutate(Timepoint = factor(Cell_State, levels = time_levels_primed, ordered = TRUE)) %>%
+    group_by(Timepoint) %>% 
+    summarise(Avg_Methylation = mean(Methylation_Percentage, na.rm = TRUE)) 
+  
+  if (nrow(df_primed) > 0) { 
+    p_primed <- ggplot(df_primed, aes(x = Timepoint, y = Avg_Methylation, group = 1)) +  
+      geom_line(size = 1, color = "red") +  
+      geom_point(size = 3, color = "red") +  
+      theme_minimal() +
+      labs(title = paste("Primed Timeline - Cell Line:", cell),
+           x = "Timepoint",
+           y = "Average Methylation Percentage") +  
+      theme(axis.text.x = element_text(angle = 45, hjust = 1)) +  
+      scale_y_continuous(breaks = seq(0, 100, by = 10), limits = c(0, 100))
+
+    print(p_primed) 
+  }
+}
+```
+
+
+
+```{r}
+time_levels_reprimed <- c("Naive", "Reprimed_d1", "Reprimed_d14", "NKX_reprimed", "POMC_reprimed")
+time_levels_primed <- c("Primed", "NKX_primed", "POMC_primed")
+
+df_long$Timeline <- ifelse(df_long$Cell_State %in% time_levels_reprimed, "Reprimed", 
+                           ifelse(df_long$Cell_State %in% time_levels_primed, "Primed", NA))
+
+df_long$Cell_Line <- as.factor(df_long$Cell_Line)
+
+df_reprimed <- df_long %>%
+  filter(Timeline == "Reprimed") %>%
+  mutate(Timepoint = factor(Cell_State, levels = time_levels_reprimed, ordered = TRUE)) %>%
+  group_by(Timepoint, Cell_Line, genomic_position) %>%  
+  summarise(Avg_Methylation = mean(Methylation_Percentage, na.rm = TRUE), .groups = 'drop')  
+
+p1 <- ggplot(df_reprimed, aes(x = Timepoint, y = Avg_Methylation, 
+                              group = interaction(Cell_Line, genomic_position),  
+                              color = factor(genomic_position))) + 
+  geom_line(size = 1) +  
+  geom_point(size = 3) +  
+  theme_minimal() +
+  labs(title = "Reprimed Timeline - Average Methylation Percentage",
+       x = "Timepoint",
+       y = "Average Methylation Percentage",
+       color = "Genomic Position") +  
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +  
+  scale_y_continuous(breaks = seq(0, 100, by = 10), limits = c(0, 100)) +
+  facet_wrap(~ Cell_Line) 
+
+df_primed <- df_long %>%
+  filter(Timeline == "Primed") %>%
+  mutate(Timepoint = factor(Cell_State, levels = time_levels_primed, ordered = TRUE)) %>%
+  group_by(Timepoint, Cell_Line, genomic_position) %>% 
+  summarise(Avg_Methylation = mean(Methylation_Percentage, na.rm = TRUE), .groups = 'drop')  
+
+p2 <- ggplot(df_primed, aes(x = Timepoint, y = Avg_Methylation, 
+                            group = interaction(Cell_Line, genomic_position),  
+                            color = factor(genomic_position))) +  
+  geom_line(size = 1) +  
+  geom_point(size = 3) +  
+  theme_minimal() +
+  labs(title = "Primed Timeline - Average Methylation Percentage",
+       x = "Timepoint",
+       y = "Average Methylation Percentage",
+       color = "Genomic Position") +  
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +  
+  scale_y_continuous(breaks = seq(0, 100, by = 10), limits = c(0, 100)) +
+  facet_wrap(~ Cell_Line) 
+
+print(p1)
+print(p2)
+```
+
+
+```{r}
+time_levels_reprimed <- c("Naive", "Reprimed_d1", "Reprimed_d14", "NKX_reprimed", "POMC_reprimed")
+time_levels_primed <- c("Primed", "NKX_primed", "POMC_primed")
+
+df_long$Timeline <- ifelse(df_long$Cell_State %in% time_levels_reprimed, "Reprimed", 
+                           ifelse(df_long$Cell_State %in% time_levels_primed, "Primed", NA))
+
+df_long$Cell_State <- as.factor(df_long$Cell_State)
+
+p3 <- ggplot(df_long, aes(x = factor(genomic_position), y = Methylation_Percentage, 
+                          fill = Cell_State)) + 
+  geom_boxplot(outlier.size = 2, width = 0.7, position = position_dodge(width = 0.75)) +  
+  theme_minimal() +
+  labs(title = "Boxplot of Methylation Percentage by Genomic Position and Cell State",
+       x = "Genomic Position",
+       y = "Methylation Percentage",
+       fill = "Cell State") + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) + 
+  scale_y_continuous(breaks = seq(0, 100, by = 10), limits = c(0, 100)) +  
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+print(p3)
+```
+
+```{r}
+time_levels_reprimed <- c("Naive", "Reprimed_d1", "Reprimed_d14", "NKX_reprimed", "POMC_reprimed")
+time_levels_primed <- c("Primed", "NKX_primed", "POMC_primed")
+
+df_long$Timeline <- ifelse(df_long$Cell_State %in% time_levels_reprimed, "Reprimed", 
+                           ifelse(df_long$Cell_State %in% time_levels_primed, "Primed", NA))
+
+df_long$Cell_State <- as.factor(df_long$Cell_State)
+
+df_reprimed <- df_long %>% filter(Timeline == "Reprimed")
+
+if (nrow(df_reprimed) > 0) {
+  p_reprimed <- ggplot(df_reprimed, aes(x = factor(genomic_position), y = Methylation_Percentage, 
+                                        fill = Cell_State)) + 
+    geom_boxplot(outlier.size = 2, width = 0.7, position = position_dodge(width = 0.75)) +  
+    theme_minimal() +
+    labs(title = "Reprimed Timeline - Methylation Percentage by Genomic Position",
+         x = "Genomic Position",
+         y = "Methylation Percentage",
+         fill = "Cell State") + 
+    theme(axis.text.x = element_text(angle = 90, hjust = 1)) + 
+    scale_y_continuous(breaks = seq(0, 100, by = 10), limits = c(0, 100)) +  
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+  print(p_reprimed)
+}
+
+df_primed <- df_long %>% filter(Timeline == "Primed")
+
+if (nrow(df_primed) > 0) {  
+  p_primed <- ggplot(df_primed, aes(x = factor(genomic_position), y = Methylation_Percentage, 
+                                    fill = Cell_State)) + 
+    geom_boxplot(outlier.size = 2, width = 0.7, position = position_dodge(width = 0.75)) +  
+    theme_minimal() +
+    labs(title = "Primed Timeline - Methylation Percentage by Genomic Position",
+         x = "Genomic Position",
+         y = "Methylation Percentage",
+         fill = "Cell State") + 
+    theme(axis.text.x = element_text(angle = 90, hjust = 1)) + 
+    scale_y_continuous(breaks = seq(0, 100, by = 10), limits = c(0, 100)) +  
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+  print(p_primed)
+}
+```
+
+
+
+
+```{r}
+time_levels_reprimed <- c("Naive", "Reprimed_d1", "Reprimed_d14", "NKX_reprimed", "POMC_reprimed")
+time_levels_primed <- c("Primed", "NKX_primed", "POMC_primed")
+
+df_long$Timeline <- ifelse(df_long$Cell_State %in% time_levels_reprimed, "Reprimed", 
+                           ifelse(df_long$Cell_State %in% time_levels_primed, "Primed", NA))
+
+df_long$Cell_State <- as.factor(df_long$Cell_State)
+
+df_long <- df_long %>%
+  filter(!is.na(Cell_State) & Cell_Line != "H9")
+
+df_means <- df_long %>%
+  group_by(genomic_position, Cell_State) %>%
+  summarise(Mean_Methylation = mean(Methylation_Percentage, na.rm = TRUE), .groups = 'drop')
+
+cell_states <- unique(df_long$Cell_State)
+
+for (state in cell_states) {
+  df_filtered <- df_long %>% filter(Cell_State == state)
+  df_means_filtered <- df_means %>% filter(Cell_State == state)
+
+  p <- ggplot(df_filtered, aes(x = factor(genomic_position), y = Methylation_Percentage, 
+                                fill = Cell_State)) + 
+    geom_boxplot(outlier.size = 2, width = 0.7, position = position_dodge(width = 0.75)) +  
+    geom_text(data = df_means_filtered, 
+              aes(label = paste("Mean:", round(Mean_Methylation, 1)), 
+                  y = Mean_Methylation + 10),  # Adjusted position above whiskers
+              color = "black", size = 2.5, fontface = "bold", vjust = 0) +  
+    theme_minimal() +
+    labs(title = paste("Boxplot of Methylation Percentage -", state),
+         x = "Genomic Position",
+         y = "Methylation Percentage",
+         fill = "Cell State") + 
+    theme(axis.text.x = element_text(angle = 90, hjust = 1)) + 
+    scale_y_continuous(breaks = seq(0, 100, by = 10), limits = c(0, 100)) +  
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))  
+
+  print(p)  
+}
+```
+
+
+
+```{r}
+sample_ids <- unique(df_long$Sample_ID)
+
+for (sample in sample_ids) {
+  
+  df_sample <- df_long %>%
+    filter(Sample_ID == sample) 
+  
+  if (nrow(df_sample) == 0) next  
+
+  experiment <- unique(df_sample$Experiment)
+  cell_line <- unique(df_sample$Cell_Line)
+  cell_state <- unique(df_sample$Cell_State)
+
+  p <- ggplot(df_sample, aes(x = genomic_position, y = Methylation_Percentage, 
+                             color = Cell_State, group = Sample_ID)) +
+    geom_line(alpha = 0.5) +  
+    geom_point(size = 1) +  
+    geom_text(aes(label = round(Methylation_Percentage, 1)), vjust = -0.5, size = 3) + 
+    theme_minimal() +  
+    labs(title = paste("Experiment:", experiment, "| Cell Line:", cell_line, "| Cell State:", cell_state),
+         x = "Genomic Position", y = "Methylation Percentage",
+         color = "Cell State") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    scale_y_continuous(breaks = seq(0, 100, by = 20), limits = c(0, 100))  
+
+  print(p)
+}
+```
+
+```{r}
+group_ids <- unique(df_long[, c("Experiment", "Cell_State")])
+
+for (i in 1:nrow(group_ids)) {
+  
+  exp_id <- group_ids$Experiment[i]
+  cell_state <- group_ids$Cell_State[i]
+  
+  df_group <- df_long %>%
+    filter(Experiment == exp_id, Cell_State == cell_state)  
+  
+  if (nrow(df_group) == 0) next
+
+  p <- ggplot(df_group, aes(x = genomic_position, y = Methylation_Percentage, 
+                             color = Sample_ID, group = Sample_ID)) +
+    geom_line(alpha = 0.5) +  
+    geom_point(size = 1) +  
+    geom_text_repel(aes(label = round(Methylation_Percentage, 1)),  
+                    size = 3, box.padding = 0.3, point.padding = 0.2) +  
+    theme_minimal() +  
+    labs(title = paste("Experiment:", exp_id, "| Cell State:", cell_state),
+         x = "Genomic Position", y = "Methylation Percentage",
+         color = "Sample ID") +  
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    scale_y_continuous(breaks = seq(0, 100, by = 20), limits = c(0, 100))  
+
+  print(p)
+}
+```
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
